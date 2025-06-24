@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "GP",
+    "slug": "GP",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/GP.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/GP.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/GP.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.anonymous.gedankenplatzclean",
+      "googleServicesFile": "./android/app/google-services.json"
+    },
+    "web": {
+      "favicon": "./assets/GP.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ed3bd418-a2de-47de-9211-d6f6d04714bd"
+      }
+    },
+    "owner": "gedankenplatz"
+  }
+}

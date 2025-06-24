@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "463936512612",
+    "project_id": "gedankenplatzclean",
+    "storage_bucket": "gedankenplatzclean.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:463936512612:android:53137fe9d30f7af213f571",
+        "android_client_info": {
+          "package_name": "com.anonymous.gedankenplatzclean"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3CEVoholLo3LT11MGWT29hsGfhBRHuCg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
