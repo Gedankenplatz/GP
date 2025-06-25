@@ -215,12 +215,47 @@ export default function ChatScreen({ navigation, route }) {
 
     // --- PUSH & Analytics ---
     if (privateChatId) {
-      // Edge Function: Push auslösen
-      await sendPushForPrivateMessage({
-        privateChatId,
-        fromUserId: myId,
-        messageText: input
+      // 1. Hole den Privat-Chat aus der DB (mit beiden User-IDs)
+      const { data: chat } = await supabase
+        .from('private_chats')
+        .select('user1_id, user2_id')
+        .eq('id', privateChatId)
+        .single();
+
+      if (!chat) {
+        console.warn("Kein Privatchat gefunden!");
+        return;
+      }
+
+      // 2. Bestimme den Partner (Empfänger)
+      const partnerId = chat.user1_id === myId ? chat.user2_id : chat.user1_id;
+
+      // 3. Hole den Push-Token des Partners
+      const { data: tokenData } = await supabase
+        .from('push_tokens')
+        .select('token')
+        .eq('user_id', partnerId)
+        .single();
+
+      if (!tokenData?.token) {
+        console.warn("Kein Push-Token für Empfänger gefunden!");
+        return;
+      }
+
+      // 4. Schicke den Push über die Edge Function
+      await fetch('https://qimpgchqxrducbmbvfaz.functions.supabase.co/send-push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpbXBnY2hxeHJkdWNibWJ2ZmF6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODc4MDc4OSwiZXhwIjoyMDY0MzU2Nzg5fQ.mJACPAMlBETmmD_JrQVGppBnihaao3jO6t_el_NIyKk' // falls nötig!
+        },
+        body: JSON.stringify({
+          token: tokenData.token,
+          title: 'Neue Privatnachricht',
+          body: input
+        }),
       });
+    
 
       // (Optional) Analytics
       analytics().logEvent('message_sent', {
@@ -263,6 +298,30 @@ export default function ChatScreen({ navigation, route }) {
 
     setInput('');
   };
+
+  useEffect(() => {
+    if (!roomId || !myId) return;
+    // Versuche, dich als Mitglied einzutragen, wenn nicht bereits drin
+    const addMembership = async () => {
+      const { data, error } = await supabase
+        .from('room_members')
+        .select('id')
+        .eq('room_id', roomId)
+        .eq('user_id', myId)
+        .single();
+      if (!data) {
+        // Noch nicht Mitglied, jetzt eintragen!
+        const { error: insertError } = await supabase
+          .from('room_members')
+          .insert([{ room_id: roomId, user_id: myId }]);
+        if (insertError) {
+          console.warn('❌ Fehler beim Hinzufügen zu room_members:', insertError.message);
+        }
+      }
+    };
+    addMembership();
+  }, [roomId, myId]);
+
 
 
   // 10. Nutzerliste holen
