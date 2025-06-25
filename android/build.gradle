@@ -1,0 +1,36 @@
+/// android/build.gradle (Top-Level)
+
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        // (Optional: Google Services Plugin Version)
+        googlePlayServicesVersion = "4.3.15"
+    }
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://notifee.github.io/maven' }
+
+    }
+    dependencies {
+        classpath('com.android.tools.build:gradle:8.0.2')
+        classpath('com.google.gms:google-services:4.3.15')
+        classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.0')
+        classpath('com.facebook.react:react-native-gradle-plugin')
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://www.jitpack.io' }
+        maven { url 'https://notifee.github.io/maven' }
+    }
+}
+
+// WICHTIG: Das Plugin selbst nicht hier, sondern nur classpath!  
+
