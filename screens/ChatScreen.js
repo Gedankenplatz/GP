@@ -5,30 +5,9 @@ import { supabase } from '../lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import moment from 'moment'; 
 import { Image } from 'react-native';
+import { InteractionManager } from 'react-native';
 
 
-async function sendPushForPrivateMessage({ privateChatId, fromUserId, messageText }) {
-  try {
-    const response = await fetch('https://qimpgchqxrducbmbvfaz.functions.supabase.co/send-push', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json',
-                 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpbXBnY2hxeHJkdWNibWJ2ZmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3ODA3ODksImV4cCI6MjA2NDM1Njc4OX0.Ou6jsTxE2XSGL56TFRVt6ZENfCS4crzY2Y2Ny7vfKQM'
-       },
-      body: JSON.stringify({
-        private_chat_id: privateChatId,
-        from_user: fromUserId,
-        text: messageText,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.warn('Push-Fehler:', errorText);
-    }
-  } catch (err) {
-    console.warn('Push-Exception:', err.message);
-  }
-}
 
 // ----------- ALTER PUSH-WEG FÜR GRUPPEN (kann später ersetzt werden) -----------
 async function sendPushNotification(toUserId, title, body) {
@@ -38,22 +17,34 @@ async function sendPushNotification(toUserId, title, body) {
     .eq('user_id', toUserId)
     .single();
   if (error || !data) {
-    console.warn('Kein Push-Token für Empfänger gefunden:', error);
+    console.warn('[PUSH] Kein Push-Token für Empfänger gefunden:', error);
     return;
   }
   const token = data.token;
+  console.log('[PUSH] Sende Push an', toUserId, 'Token:', token, 'Title:', title, 'Body:', body);
 
-  await fetch('https://qimpgchqxrducbmbvfaz.functions.supabase.co/send-push', {
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const access_token = session?.access_token;
+  if (!access_token) {
+    console.warn('[PUSH] Kein Access Token verfügbar!');
+    return;
+  }
+
+
+  const resp = await fetch('https://qimpgchqxrducbmbvfaz.functions.supabase.co/send-push', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json',
-               'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpbXBnY2hxeHJkdWNibWJ2ZmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3ODA3ODksImV4cCI6MjA2NDM1Njc4OX0.Ou6jsTxE2XSGL56TFRVt6ZENfCS4crzY2Y2Ny7vfKQM'
-     },
-    body: JSON.stringify({
-      token,
-      title,
-      body
-    })
+    'Authorization': `Bearer ${access_token}`,
+  },
+
+  body: JSON.stringify({ token, title, body }),
   });
+  console.log('[PUSH] Push-Response', resp.status);
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    console.warn('[PUSH] Fehlertext:', errorText);
+  }
 }
 
 export default function ChatScreen({ navigation, route }) {
@@ -81,6 +72,8 @@ export default function ChatScreen({ navigation, route }) {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const insets = useSafeAreaInsets();
   const flatListRef = useRef(null);
+  const [inputHeight, setInputHeight] = useState(60);
+  const [partnerProfile, setPartnerProfile] = useState(null);
 
   // 3. Navigation-IDs synchronisieren
   useEffect(() => {
@@ -97,12 +90,13 @@ export default function ChatScreen({ navigation, route }) {
             <MaterialIcons name="person" size={28} color="#007AFF" />
           </TouchableOpacity>
         ),
-        title: contactName ? `Chat mit ${contactName}` : 'Privatchat'
+        title: partnerProfile ? `Chat mit ${partnerProfile.emoji || "🙂"} ${partnerProfile.nickname || "Kontakt"}` 
+        : 'Privatchat'
       });
     } else if (roomName) {    
       navigation.setOptions({ title: roomName });
     }
-  }, [navigation, privateChatId, roomName, contactName]);
+  }, [navigation, privateChatId, roomName, partnerProfile]);
 
   // 5. Eigene User-ID holen
   useEffect(() => {
@@ -110,6 +104,37 @@ export default function ChatScreen({ navigation, route }) {
       if (user) setMyId(user.id);
     });
   }, []);
+
+  useEffect(() => {
+    if (!privateChatId || !myId) return;
+    let cancelled = false;
+
+    (async () => {
+      // Chat-Relation holen
+      const { data: chat } = await supabase
+        .from('private_chats')
+        .select('user1_id, user2_id')
+        .eq('id', privateChatId)
+        .single();
+
+      if (!chat) return;
+
+      // Partner bestimmen
+      const partnerId = chat.user1_id === myId ? chat.user2_id : chat.user1_id;
+
+      // Partner-Profil holen
+      const { data: partner } = await supabase
+        .from('profiles')
+        .select('nickname, emoji, avatar_url')
+        .eq('id', partnerId)
+        .single();
+
+      if (!cancelled) setPartnerProfile(partner);
+    })();
+
+    return () => { cancelled = true; };
+  }, [privateChatId, myId]);
+
 
   useEffect(() => {
     if (!roomId || !myId) return;
@@ -130,22 +155,23 @@ export default function ChatScreen({ navigation, route }) {
   // 6. Realtime Subscription – optimiert NUR für diesen Chat!
   useEffect(() => {
     if (!roomId && !privateChatId) return;
-    const filter = roomId
-      ? { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` }
-      : { event: 'INSERT', schema: 'public', table: 'messages', filter: `private_chat_id=eq.${privateChatId}` };
 
-    const channel = supabase
-      .channel('chat-room')
-      .on('postgres_changes', filter, (payload) => {
-        // Neue Nachricht einhängen
-        setMessages((prev) => [...prev, payload.new]);
-      })
-      .subscribe();
+      const filter = roomId
+        ? { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` }
+        : { event: 'INSERT', schema: 'public', table: 'messages', filter: `private_chat_id=eq.${privateChatId}` };
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [roomId, privateChatId]);
+      const channel = supabase
+        .channel('chat-room')
+        .on('postgres_changes', filter, (payload) => {
+          // Neue Nachricht einhängen
+          setMessages((prev) => [...prev, payload.new]);
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }, [roomId, privateChatId]);
 
   // 7. Nachrichten initial laden (Pagination kann später ergänzt werden)
   useEffect(() => {
@@ -188,8 +214,10 @@ export default function ChatScreen({ navigation, route }) {
 
   // 8. Automatisch runterscrollen
   useEffect(() => {
-    if (flatListRef.current && messages.length)
-      flatListRef.current.scrollToEnd({ animated: true });
+    if (!messages.length) return;
+    InteractionManager.runAfterInteractions(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    });
   }, [messages]);
 
   // 9. Nachricht senden (absolut DRY & stabil!)
@@ -206,64 +234,42 @@ export default function ChatScreen({ navigation, route }) {
     const { error } = await supabase.from('messages').insert([messageData]);
     setSending(false);
 
-    setInput('');
+
 
     if (error) {
       Alert.alert('Fehler beim Senden', error.message);
       return;
     }
 
+    setInput('');
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+
     // --- PUSH & Analytics ---
     if (privateChatId) {
-      // 1. Hole den Privat-Chat aus der DB (mit beiden User-IDs)
-      const { data: chat } = await supabase
+  // 1. Partner-ID holen
+      const { data: chat, error: chatError } = await supabase
         .from('private_chats')
         .select('user1_id, user2_id')
         .eq('id', privateChatId)
         .single();
 
-      if (!chat) {
-        console.warn("Kein Privatchat gefunden!");
-        return;
+      if (chatError || !chat) {
+        console.warn("[PRIVPUSH] Kein Privatchat gefunden!", chatError?.message);
+      return;
       }
 
-      // 2. Bestimme den Partner (Empfänger)
+
       const partnerId = chat.user1_id === myId ? chat.user2_id : chat.user1_id;
-
-      // 3. Hole den Push-Token des Partners
-      const { data: tokenData } = await supabase
-        .from('push_tokens')
-        .select('token')
-        .eq('user_id', partnerId)
-        .single();
-
-      if (!tokenData?.token) {
-        console.warn("Kein Push-Token für Empfänger gefunden!");
-        return;
+      if (!partnerId) {
+        console.warn("[PRIVPUSH] PartnerId konnte nicht bestimmt werden");
+      return;
       }
+      console.log("[PRIVPUSH] Sende Push an PartnerId:", partnerId);
 
-      // 4. Schicke den Push über die Edge Function
-      await fetch('https://qimpgchqxrducbmbvfaz.functions.supabase.co/send-push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpbXBnY2hxeHJkdWNibWJ2ZmF6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODc4MDc4OSwiZXhwIjoyMDY0MzU2Nzg5fQ.mJACPAMlBETmmD_JrQVGppBnihaao3jO6t_el_NIyKk' // falls nötig!
-        },
-        body: JSON.stringify({
-          token: tokenData.token,
-          title: 'Neue Privatnachricht',
-          body: input
-        }),
-      });
-    
-
-      // (Optional) Analytics
-      analytics().logEvent('message_sent', {
-        type: 'private',
-        to_user: null,
-        room_id: null
-      });
-      analytics().logEvent('push_sent', { type: 'private' });
+      // 2. Push schicken
+      await sendPushNotification(partnerId, 'Neue Privatnachricht', input);
     }
 
   
@@ -285,7 +291,7 @@ export default function ChatScreen({ navigation, route }) {
             `Neue Nachricht im Raum ${roomName || 'Gruppe'}`,
             input
           );
-          analytics().logEvent('push_sent', { to_user: toUserId, room_id: roomId });
+          
         }
       }
 
@@ -296,35 +302,22 @@ export default function ChatScreen({ navigation, route }) {
       });
     }
 
-    setInput('');
+    
   };
 
   useEffect(() => {
     if (!roomId || !myId) return;
-    // Versuche, dich als Mitglied einzutragen, wenn nicht bereits drin
-    const addMembership = async () => {
-      const { data, error } = await supabase
+      const addMembership = async () => {
+      await supabase
         .from('room_members')
-        .select('id')
-        .eq('room_id', roomId)
-        .eq('user_id', myId)
-        .single();
-      if (!data) {
-        // Noch nicht Mitglied, jetzt eintragen!
-        const { error: insertError } = await supabase
-          .from('room_members')
-          .insert([{ room_id: roomId, user_id: myId }]);
-        if (insertError) {
-          console.warn('❌ Fehler beim Hinzufügen zu room_members:', insertError.message);
-        }
-      }
+        .upsert([{ room_id: roomId, user_id: myId }], { onConflict: ['room_id', 'user_id'] });
     };
-    addMembership();
+      addMembership();
   }, [roomId, myId]);
 
 
 
-  // 10. Nutzerliste holen
+    // 10. Nutzerliste holen
   useEffect(() => {
     async function fetchUsers() {
       const { data, error } = await supabase.from('profiles').select('id, nickname, status, emoji');
@@ -374,7 +367,7 @@ export default function ChatScreen({ navigation, route }) {
           <TouchableOpacity
             style={styles.modalButton}
             onPress={() => {
-              setInput(`@${getProfileName(selectedMessage.sender_id)}: `);
+              setInput(`@${getProfileName(selectedMessage.sender_id)}:` );
               setSelectedMessage(null);
             }}
           >
@@ -552,7 +545,7 @@ export default function ChatScreen({ navigation, route }) {
                   {item.sender_id !== myId && (
                     <Text style={styles.username}>{getProfileName(item.sender_id)}</Text>
                   )}
-                  <Text style={styles.timestamp}>
+                   <Text style={styles.timestamp}>
                     {moment(item.created_at).format('HH:mm')}
                   </Text>
                 </View>
@@ -565,22 +558,24 @@ export default function ChatScreen({ navigation, route }) {
             Noch keine Nachrichten
           </Text>
         }
-      
+
         // DAS ist wichtig: Abstand nach unten für die Inputleiste!
-        contentContainerStyle={{ paddingBottom: 70 + insets.bottom }}
-        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: inputHeight }}
+          style={{ flex: 1 }}
+          onContentSizeChange={() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }}
       />
 
+
       {/* Eingabefeld IMMER ganz unten, außerhalb der FlatList! */}
-      <View style={[
-        styles.inputContainer,
-        { position: 'absolute', 
-          bottom: 0,
-          left: 0,
-          right: 0,
-          paddingBottom: 0,
-        }
-      ]}>
+      <View style={
+        styles.inputContainer}
+        onLayout={event => setInputHeight(event.nativeEvent.layout.height)}
+      >
         <TextInput
           style={styles.input}
           value={input}
@@ -626,7 +621,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOpacity: 0.07,
+    shadowOpacity: 0.09,
     shadowRadius: 3,
     elevation: 2,
   },
@@ -660,7 +655,7 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    padding: 3,
+    padding: 5,
     alignItems: 'center',
     borderRadius: 24,
     margin: 10,
