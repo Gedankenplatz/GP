@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 
 export default function ChatsOverviewScreen({ navigation }) {
   const [rooms, setRooms] = useState([]);
-  const [privateChats, setPrivateChats] = useState([]);
+  const [privateChats, setPrivateChats] = useState(null);
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [nickname, setNickname] = useState('Gast');
@@ -85,7 +85,7 @@ export default function ChatsOverviewScreen({ navigation }) {
   // Contact-Infos für alle privaten Chats nachladen (nur, wenn privateChats sich ändern!)
   useEffect(() => {
     async function enrichChats() {
-      if (!user || !privateChats.length) return;
+      if (!user || !privateChats || !privateChats.length) return;
       const ids = privateChats.map(chat => chat.user1_id === user.id ? chat.user2_id : chat.user1_id);
       if (!ids.length) return;
       const { data: profilesData } = await supabase
@@ -101,7 +101,7 @@ export default function ChatsOverviewScreen({ navigation }) {
     }
     enrichChats();
     // eslint-disable-next-line
-  }, [privateChats.length, user]);
+  }, [privateChats, user]);
 
   // Raum anlegen (Created by setzen)
   const createRoom = async () => {
@@ -209,10 +209,10 @@ export default function ChatsOverviewScreen({ navigation }) {
 
       <Text style={styles.subheading}>Private Chats</Text>
       <FlatList
-        data={privateChats}
+        data={privateChats || []}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => {
-          const { name, id: contactId, emoji } = getContactInfo(item);
+          const { name, emoji } = getContactInfo(item);
           return (
             <TouchableOpacity
               style={styles.roomButton}
@@ -233,7 +233,9 @@ export default function ChatsOverviewScreen({ navigation }) {
                 )
               }
             >
-              <Text style={styles.roomName}>{emoji} {name}</Text>
+              <Text style={styles.roomName}>
+                {emoji} {name === "Kontakt" ? "Wird geladen..." : name}
+              </Text>
             </TouchableOpacity>
           );
         }}

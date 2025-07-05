@@ -1,0 +1,38 @@
+# IDE/Editor Settings
+.idea
+.vscode
+.expo
+
+# Node modules
+node_modules
+
+# Native build outputs (Android)
+android/app/build
+android/.gradle
+android/build
+android/.downloadIntermediates
+android/.kotlin
+android/.temp
+android/.cxx
+android/.knownPackages
+android/local.properties*
+
+# iOS (nur falls Ordner vorhanden)
+ios
+
+# Schlüssel/Secrets (NIEMALS in Build oder Git!)
+my-release-key.keystore
+
+# Binär- und CLI-Dateien
+supabase.exe
+
+# Logs & Misc
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# Test & Doku
+/test/
+*.test.js
+*.md
